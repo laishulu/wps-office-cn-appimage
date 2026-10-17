@@ -1,22 +1,37 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REQUIRED_BINS=(curl jq nix-hash python3)
+# 1. Map required commands to their corresponding Nix package names
+declare -A BIN_PKG_MAP=(
+  [curl]="curl"
+  [jq]="jq"
+  [python3]="python3"
+  [nix-hash]="nix"
+)
+
+REQUIRED_BINS=("${!BIN_PKG_MAP[@]}")
 MISSING_PKGS=()
 
 for bin in "${REQUIRED_BINS[@]}"; do
   if ! command -v "$bin" &>/dev/null; then
-    case "$bin" in
-      nix-hash) MISSING_PKGS+=(nix) ;;
-      *) MISSING_PKGS+=("$bin") ;;
-    esac
+    pkg="${BIN_PKG_MAP[$bin]}"
+    # Avoid adding duplicate packages
+    if [[ ! " ${MISSING_PKGS[*]:-} " =~ [[:space:]]${pkg}[[:space:]] ]]; then
+      MISSING_PKGS+=("$pkg")
+    fi
   fi
 done
 
+# 2. Re-enter via nix-shell if dependencies are missing (guarded against recursive loops)
 if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
+  if [ "${IN_NIX_SHELL_UPDATER:-}" = "1" ]; then
+    echo "Error: Still missing dependencies inside nix-shell: ${MISSING_PKGS[*]}" >&2
+    exit 1
+  fi
+
   echo "==> Missing dependencies: ${MISSING_PKGS[*]}"
   echo "==> Entering temporary nix-shell environment..."
-  exec nix-shell -p "${MISSING_PKGS[@]}" --run "$(printf '%q ' "$0" "$@")"
+  exec env IN_NIX_SHELL_UPDATER=1 nix-shell -p "${MISSING_PKGS[@]}" --run "$(printf '%q ' "$0" "$@")"
 fi
 
 NIX_FILE="${1:-flake.nix}"
@@ -34,7 +49,7 @@ trap 'rm -rf "$AUR_DIR"' EXIT
 curl -sSL "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=wps-office-cn" -o "$AUR_DIR/PKGBUILD"
 
 echo "==> 2. Parsing PKGBUILD variables..."
-# Safely source variables in a subshell
+# Safely source variables in an isolated subshell
 PARSED_VARS=$(bash -c '
   set -a
   source "'"$AUR_DIR/PKGBUILD"'" 2>/dev/null || true
@@ -141,6 +156,6 @@ with open('$NIX_FILE', 'w') as f:
 "
 
 echo "==> 6. Updating latest.txt..."
-date > latest.txt
+date -u -Iseconds > latest.txt
 
 echo "==> Successfully updated $NIX_FILE!"

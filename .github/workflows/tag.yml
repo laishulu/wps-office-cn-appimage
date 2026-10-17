@@ -37,7 +37,7 @@ jobs:
             echo "Error: version.txt not found!" >&2
             exit 1
           fi
-          WPS_VERSION="$(tr -d '[:space:]' < version.txt)"
+          APP_VERSION="$(tr -d '[:space:]' < version.txt)"
 
           # Use the exact Git tag pushed by the user; fallback to version-branch on manual workflow_dispatch
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
@@ -45,17 +45,17 @@ jobs:
           else
             # 截取当前 commit SHA 的前 7 位
             SHORT_SHA="${GITHUB_SHA::7}"
-            RELEASE_TAG="v${WPS_VERSION}-${SHORT_SHA}"
+            RELEASE_TAG="v${APP_VERSION}-${SHORT_SHA}"
           fi
 
-          echo "WPS Office CN Version: ${WPS_VERSION}"
+          echo "APP Version: ${APP_VERSION}"
           echo "Release Tag: ${RELEASE_TAG}"
 
           # Allow unfree packages and build the flake output
           NIXPKGS_ALLOW_UNFREE=1 nix build .#appimage
 
           # Target asset names using the exact tag
-          OUTPUT_APPIMAGE="WPS-Office-CN-${WPS_VERSION}-${RELEASE_TAG}-x86_64.AppImage"
+          OUTPUT_APPIMAGE="WPS-Office-CN-${APP_VERSION}-${RELEASE_TAG}-x86_64.AppImage"
           OUTPUT_ZSYNC="${OUTPUT_APPIMAGE}.zsync"
 
           # Extract artifacts from the result directory
@@ -83,7 +83,7 @@ jobs:
           ls -lh "${OUTPUT_APPIMAGE}" "${OUTPUT_ZSYNC}"
 
           # Export environment variables for the downstream release step
-          echo "WPS_VERSION=${WPS_VERSION}" >> "$GITHUB_ENV"
+          echo "APP_VERSION=${APP_VERSION}" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=${RELEASE_TAG}" >> "$GITHUB_ENV"
           echo "APPIMAGE_ASSET=${OUTPUT_APPIMAGE}" >> "$GITHUB_ENV"
           echo "ZSYNC_ASSET=${OUTPUT_ZSYNC}" >> "$GITHUB_ENV"
@@ -92,7 +92,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: "WPS-Office-CN v${{ env.WPS_VERSION }} (${{ env.RELEASE_TAG }})"
+          name: "WPS-Office-CN v${{ env.APP_VERSION }} (${{ env.RELEASE_TAG }})"
           files: |
             ${{ env.APPIMAGE_ASSET }}
             ${{ env.ZSYNC_ASSET }}
