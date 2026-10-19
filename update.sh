@@ -85,10 +85,19 @@ fi
 echo "Version : $PKGVER"
 echo "Base URL: $DEB_URL"
 
-echo "==> 3. Updating version.txt..."
+echo "==> 3. Updating latest.txt..."
+date -u -Iseconds > latest.txt
+
+echo "==> 4. Updating version.txt..."
 echo "$PKGVER" > "$VERSION_FILE"
 
-echo "==> 4. Verifying CDN URL and calculating SRI hash..."
+# Check if already up to date
+if [ -f "$VERSION_FILE" ] && [ "$(cat "$VERSION_FILE")" = "$PKGVER" ]; then
+  echo "==> Package is already up to date ($PKGVER). Exiting."
+  exit 0
+fi
+
+echo "==> 5. Verifying CDN URL and calculating SRI hash..."
 sign_wps_url() {
   local raw_url="$1"
   if [[ "$raw_url" =~ ^https://wps-linux-personal.wpscdn.cn ]]; then
@@ -126,7 +135,7 @@ fi
 
 echo "SRI Hash: $DEB_HASH"
 
-echo "==> 5. Updating $NIX_FILE..."
+echo "==> 6. Updating $NIX_FILE..."
 python3 -c "
 import re
 
@@ -154,8 +163,5 @@ content = re.sub(
 with open('$NIX_FILE', 'w') as f:
     f.write(content)
 "
-
-echo "==> 6. Updating latest.txt..."
-date -u -Iseconds > latest.txt
 
 echo "==> Successfully updated $NIX_FILE!"
