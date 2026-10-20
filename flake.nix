@@ -220,7 +220,7 @@
           cp -r "${wpsStandalone}/share/"* AppDir/usr/share/
           ln -sf usr/share/applications/wps-office-prometheus.desktop AppDir/
           ln -sf usr/share/icons/hicolor/scalable/apps/wps-office2023-kprometheus.svg AppDir/
-          ln -sf wps-office2023-kprometheus.png AppDir/.DirIcon
+          ln -sf wps-office2023-kprometheus.svg AppDir/.DirIcon
 
           # 2. Binary symlinks
           mkdir -p AppDir/bin
