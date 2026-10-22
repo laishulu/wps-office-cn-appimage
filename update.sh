@@ -7,6 +7,7 @@ declare -A BIN_PKG_MAP=(
   [jq]="jq"
   [python3]="python3"
   [nix-hash]="nix"
+  [nix-prefetch-url]="nix"
 )
 
 REQUIRED_BINS=("${!BIN_PKG_MAP[@]}")
@@ -15,7 +16,6 @@ MISSING_PKGS=()
 for bin in "${REQUIRED_BINS[@]}"; do
   if ! command -v "$bin" &>/dev/null; then
     pkg="${BIN_PKG_MAP[$bin]}"
-    # Avoid adding duplicate packages
     if [[ ! " ${MISSING_PKGS[*]:-} " =~ [[:space:]]${pkg}[[:space:]] ]]; then
       MISSING_PKGS+=("$pkg")
     fi
@@ -49,7 +49,6 @@ trap 'rm -rf "$AUR_DIR"' EXIT
 curl -sSL "https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h=wps-office-cn" -o "$AUR_DIR/PKGBUILD"
 
 echo "==> 2. Parsing PKGBUILD variables..."
-# Safely source variables in an isolated subshell
 PARSED_VARS=$(bash -c '
   set -a
   source "'"$AUR_DIR/PKGBUILD"'" 2>/dev/null || true
@@ -85,19 +84,12 @@ fi
 echo "Version : $PKGVER"
 echo "Base URL: $DEB_URL"
 
-echo "==> 3. Updating latest.txt..."
-date -u -Iseconds > latest.txt
-
-echo "==> 4. Updating version.txt..."
-echo "$PKGVER" > "$VERSION_FILE"
-
-# Check if already up to date
+# Check if already up to date before overwriting version.txt
 if [ -f "$VERSION_FILE" ] && [ "$(cat "$VERSION_FILE")" = "$PKGVER" ]; then
-  echo "==> Package is already up to date ($PKGVER). Exiting."
-  exit 0
+  echo "==> Package is already up to date ($PKGVER)."
 fi
 
-echo "==> 5. Verifying CDN URL and calculating SRI hash..."
+echo "==> 3. Verifying CDN URL and calculating WPS deb SRI hash..."
 sign_wps_url() {
   local raw_url="$1"
   if [[ "$raw_url" =~ ^https://wps-linux-personal.wpscdn.cn ]]; then
@@ -133,35 +125,77 @@ else
   DEB_HASH=$(nix-hash --type sha256 --to-sri "$RAW_SHA256")
 fi
 
-echo "SRI Hash: $DEB_HASH"
+echo "WPS SRI Hash: $DEB_HASH"
 
-echo "==> 6. Updating $NIX_FILE..."
+echo "==> 4. Fetching latest release appimagetool and runtime SRI hashes..."
+APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/latest/download/appimagetool-x86_64.AppImage"
+RAW_APPIMAGETOOL_SHA256=$(nix-prefetch-url --type sha256 "$APPIMAGETOOL_URL")
+APPIMAGETOOL_HASH=$(nix-hash --type sha256 --to-sri "$RAW_APPIMAGETOOL_SHA256")
+echo "appimagetool SRI Hash: $APPIMAGETOOL_HASH"
+
+RUNTIME_URL="https://github.com/AppImage/type2-runtime/releases/latest/download/runtime-x86_64"
+RAW_RUNTIME_SHA256=$(nix-prefetch-url --type sha256 "$RUNTIME_URL")
+RUNTIME_HASH=$(nix-hash --type sha256 --to-sri "$RAW_RUNTIME_SHA256")
+echo "runtime SRI Hash     : $RUNTIME_HASH"
+
+echo "==> 5. Updating $NIX_FILE..."
 python3 -c "
 import re
 
 with open('$NIX_FILE', 'r') as f:
     content = f.read()
 
+# 1. Update wpsConfig version
 content = re.sub(
     r'(wpsConfig\s*=\s*\{[\s\S]*?version\s*=\s*\")[^\"]+(\";)',
-    r'\g<1>$PKGVER\2',
+    r'\g<1>$PKGVER\g<2>',
     content
 )
 
+# 2. Update wpsConfig url
 content = re.sub(
     r'(wpsConfig\s*=\s*\{[\s\S]*?url\s*=\s*\")[^\"]+(\";)',
-    r'\g<1>$DEB_URL\2',
+    r'\g<1>$DEB_URL\g<2>',
     content
 )
 
+# 3. Update wpsConfig hash
 content = re.sub(
     r'(wpsConfig\s*=\s*\{[\s\S]*?hash\s*=\s*\")[^\"]+(\";)',
-    r'\g<1>$DEB_HASH\2',
+    r'\g<1>$DEB_HASH\g<2>',
+    content
+)
+
+# 4. Update appimagetool url & hash
+content = re.sub(
+    r'(appimagetool\s*=\s*pkgs\.fetchurl\s*\{[\s\S]*?url\s*=\s*\")[^\"]+(\";)',
+    r'\g<1>$APPIMAGETOOL_URL\g<2>',
+    content
+)
+content = re.sub(
+    r'(appimagetool\s*=\s*pkgs\.fetchurl\s*\{[\s\S]*?hash\s*=\s*\")[^\"]+(\";)',
+    r'\g<1>$APPIMAGETOOL_HASH\g<2>',
+    content
+)
+
+# 5. Update appimageRuntime url & hash
+content = re.sub(
+    r'(appimageRuntime\s*=\s*pkgs\.fetchurl\s*\{[\s\S]*?url\s*=\s*\")[^\"]+(\";)',
+    r'\g<1>$RUNTIME_URL\g<2>',
+    content
+)
+content = re.sub(
+    r'(appimageRuntime\s*=\s*pkgs\.fetchurl\s*\{[\s\S]*?hash\s*=\s*\")[^\"]+(\";)',
+    r'\g<1>$RUNTIME_HASH\g<2>',
     content
 )
 
 with open('$NIX_FILE', 'w') as f:
     f.write(content)
 "
+
+echo "==> 6. Updating latest.txt and version.txt..."
+date -u -Iseconds > latest.txt
+echo "$PKGVER" > "$VERSION_FILE"
 
 echo "==> Successfully updated $NIX_FILE!"
